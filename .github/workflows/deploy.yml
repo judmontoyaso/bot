@@ -1,0 +1,31 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AWS_SSH_KEY }}" > ~/.ssh/biblot.pem
+          chmod 600 ~/.ssh/biblot.pem
+          echo -e "Host aws\n\tHostName ${{ secrets.AWS_HOST }}\n\tUser ubuntu\n\tIdentityFile ~/.ssh/biblot.pem\n\tStrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Deploy to AWS
+        run: |
+          # Clonar el repositorio
+          ssh aws "cd /home/ubuntu/bot && git pull origin main"
+          
+          # Configurar el entorno y reiniciar la aplicación
+          ssh aws "cd /home/ubuntu/bot && \
+            source venv/bin/activate && \
+            pip install -r requirements.txt && \
+            pkill -f 'python3 src/main.py' || true && \
+            nohup python3 src/main.py > bot.log 2>&1 &" 
