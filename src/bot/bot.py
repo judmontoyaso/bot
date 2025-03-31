@@ -21,72 +21,84 @@ class BiblotBot(commands.Bot):
         self.ai_helper = OpenAIHelper()
         self.bible_helper = BibleHelper()
         
-        # Inicializar ChatterBot
+        # Inicializar ChatterBot con configuración mejorada
         self.chatbot = ChatBot(
             'Biblot',
             storage_adapter='chatterbot.storage.SQLStorageAdapter',
-    database_uri='sqlite:///database.sqlite3',
+            database_uri='sqlite:///database.sqlite3',
             logic_adapters=[
-                'chatterbot.logic.BestMatch'
+                {
+                    'import_path': 'chatterbot.logic.BestMatch',
+                    'default_response': 'Lo siento, no entiendo completamente. ¿Podrías reformular tu pregunta?',
+                    'maximum_similarity_threshold': 0.90
+                },
+                {
+                    'import_path': 'chatterbot.logic.MathematicalEvaluation'
+                },
+                {
+                    'import_path': 'chatterbot.logic.TimeLogicAdapter'
+                }
+            ],
+            preprocessors=[
+                'chatterbot.preprocessors.clean_whitespace',
+                'chatterbot.preprocessors.convert_to_ascii',
+                'chatterbot.preprocessors.unescape_html'
             ]
         )
         
-        # Entrenar con conversaciones básicas
+        # Remover el entrenamiento estático y agregar un método más dinámico
+        self.train_dynamic_responses()
+        
+    def train_dynamic_responses(self):
+        """Método para entrenar el bot con respuestas más dinámicas"""
         trainer = ListTrainer(self.chatbot)
         
-        # Entrenar con conversaciones básicas en español
-        conversaciones = [
-            "Hola",
-            "¡Hola! ¿Cómo estás?",
-            
-            "¿Cómo estás?",
-            "Estoy bien, gracias por preguntar. ¿En qué puedo ayudarte?",
-            
-            "¿Qué puedes hacer?",
-            "Puedo ayudarte con versículos de la Biblia, explicaciones y reflexiones. Usa !ayuda para ver todos los comandos.",
-            
-            "Gracias",
-            "¡De nada! Estoy aquí para ayudar.",
-            
-            "Adiós",
-            "¡Hasta luego! Que Dios te bendiga.",
-            
-            "¿Quién eres?",
-            "Soy Biblot, un bot diseñado para ayudarte a estudiar y reflexionar sobre la Biblia.",
-            
-            "¿Qué es la Biblia?",
-            "La Biblia es la Palabra de Dios, un conjunto de libros sagrados que contienen la revelación divina.",
-            
-            "¿Cómo puedo usar los comandos?",
-            "Puedes usar comandos como !versiculo, !explicar, !reflexion y más. Usa !ayuda para ver la lista completa.",
-            
-            "No entiendo",
-            "No hay problema, puedo ayudarte. Usa !ayuda para ver todos los comandos disponibles o pregúntame algo específico.",
-            
-            "¿Puedes explicarme un versículo?",
-            "¡Claro! Usa el comando !explicar seguido del libro y versículo. Por ejemplo: !explicar Juan 3:16",
-            
-            "¿Cómo funciona la reflexión?",
-            "Puedes usar !reflexion seguido de un versículo para recibir una reflexión espiritual. También puedo elegir un versículo aleatorio si solo escribes !reflexion",
-            
-            "¿Qué significa este versículo?",
-            "Para entender un versículo específico, usa el comando !explicar seguido del libro y versículo que quieras comprender.",
-            
-            "Necesito ayuda",
-            "Estoy aquí para ayudarte. Usa !ayuda para ver todos los comandos disponibles o pregúntame algo específico.",
-            
-            "¿Cómo guardo notas?",
-            "Puedes guardar notas personales usando el comando !nota seguido del versículo y tu nota. Por ejemplo: !nota Juan 3:16 Este versículo me recuerda el amor de Dios",
-            
-            "¿Dónde están mis notas?",
-            "Puedes ver todas tus notas guardadas usando el comando !misnotas",
-            
-            "¿Puedo chatear en privado?",
-            "¡Sí! Usa el comando !privado y te enviaré instrucciones por mensaje directo."
+        # Categorías de conversación
+        religious_conversations = [
+            ["¿Qué es la fe?", 
+             "La fe es la confianza y creencia en Dios y sus promesas, incluso cuando no podemos ver el resultado.",
+             "La fe es fundamental en nuestra relación con Dios y se manifiesta en nuestras acciones diarias."],
+            ["¿Cómo puedo orar?",
+             "La oración es una conversación personal con Dios. Puedes empezar simplemente hablando con Él desde tu corazón.",
+             "Jesús nos enseñó a orar en Mateo 6:9-13 con el Padre Nuestro como ejemplo."]
         ]
-        
-        trainer.train(conversaciones)
-        
+
+        bible_study_conversations = [
+            ["¿Cómo estudio la Biblia?",
+             "Puedes empezar leyendo un capítulo al día y reflexionando sobre su significado.",
+             "Te sugiero usar el método SOAP: Scripture (Escritura), Observation (Observación), Application (Aplicación), Prayer (Oración)"],
+            ["¿Por dónde empiezo a leer la Biblia?",
+             "Muchos recomiendan empezar por el Evangelio de Juan para conocer a Jesús.",
+             "También puedes empezar por el libro de Salmos para oraciones y alabanzas."]
+        ]
+
+        # Entrenar con cada categoría
+        for conversation_set in [religious_conversations, bible_study_conversations]:
+            for conversation in conversation_set:
+                trainer.train(conversation)
+
+    async def process_chat_response(self, message_content):
+        """Procesa la respuesta del chat con múltiples intentos y manejo de errores"""
+        try:
+            # Primer intento: respuesta directa
+            response = self.chatbot.get_response(message_content)
+            confidence = response.confidence
+
+            # Si la confianza es baja, intentar con variaciones
+            if confidence < 0.5:
+                # Intentar con el mensaje simplificado
+                simplified = ' '.join(message_content.lower().split())
+                alt_response = self.chatbot.get_response(simplified)
+                
+                # Usar la respuesta con mayor confianza
+                if alt_response.confidence > confidence:
+                    response = alt_response
+
+            return str(response)
+        except Exception as e:
+            print(f"Error en el procesamiento del chat: {str(e)}")
+            return "Lo siento, tuve un problema procesando tu mensaje. ¿Podrías intentarlo de nuevo?"
+
     async def on_ready(self):
         print(f'Bot conectado como {self.user.name}')
         await self.change_presence(activity=discord.Game(name="!ayuda para ver comandos"))
@@ -332,12 +344,12 @@ class BiblotBot(commands.Bot):
             """Chatea con el bot usando IA"""
             try:
                 # Obtener respuesta del ChatterBot
-                response = self.chatbot.get_response(message)
+                response = await self.process_chat_response(message)
                 
                 # Crear embed para la respuesta
                 embed = discord.Embed(
                     #title="🤖 Respuesta del Bot",
-                    description=str(response),
+                    description=response,
                     color=discord.Color.blue()
                 )
                 
@@ -356,23 +368,19 @@ class BiblotBot(commands.Bot):
             ctx = await self.get_context(message)
             if ctx.command:
                 await self.invoke(ctx)
-        # Si no es un comando, usar ChatterBot
-        else:
+        # Si no es un comando y el mensaje es para el bot
+        elif self.user in message.mentions or isinstance(message.channel, discord.DMChannel):
             try:
-                # Obtener respuesta del ChatterBot
-                response = self.chatbot.get_response(message.content)
-                
-                # Crear embed para la respuesta
+                async with message.channel.typing():
+                    response = await self.process_chat_response(message.content)
+                    
                 embed = discord.Embed(
-                   # title="🤖 Respuesta del Bot",
-                    description=str(response),
+                    description=response,
                     color=discord.Color.blue()
                 )
-                
                 await message.channel.send(embed=embed)
             except Exception as e:
-                print(f"Error en chat: {str(e)}")
-                # No enviamos mensaje de error para no spamear el chat
+                print(f"Error en el manejo del mensaje: {str(e)}")
 
 # Crear la instancia del bot
 bot = BiblotBot()
